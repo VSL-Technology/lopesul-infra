@@ -1,0 +1,45 @@
+# Node modules
+**/node_modules/
+
+# Builds e artefatos do Next / bundlers
+**/.next/
+**/dist/
+**/build/
+**/out/
+
+# Cache do Next/Webpack (como painel-new/cache/webpack/...)
+**/cache/
+**/.cache/
+
+# Logs
+*.log
+**/logs/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Arquivos temporários / sistema
+*.tmp
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Env / segredos
+.env
+.env.*
+*.env.local
+*.env.development
+*.env.production
+*.env.test
+
+# Replit / editor local
+**/.local/
+.replit
+.vscode/
+.idea/
+
+# Arquivos de cobertura/testes
+coverage/
+.nyc_output/
+jest-html-reporters-*.html
