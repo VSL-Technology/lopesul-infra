@@ -4,8 +4,26 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import * as ROS from 'routeros-api';
+import { PrismaClient } from '@prisma/client';
+import { requireDeviceRouter } from './device-router.mjs';
 
 dotenv.config({ override: true });
+
+// Inicializa Prisma (opcional - só se DATABASE_URL estiver configurado)
+let prisma = null;
+const DATABASE_URL = (process.env.DATABASE_URL || '').trim();
+if (DATABASE_URL) {
+  try {
+    prisma = new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    });
+    console.log('[relay] Prisma Client inicializado (modo inteligente ativo)');
+  } catch (err) {
+    console.warn('[relay] Prisma não disponível:', err?.message || err);
+  }
+} else {
+  console.warn('[relay] DATABASE_URL não configurado - modo inteligente desabilitado');
+}
 
 // Compat ESM/CJS p/ routeros-api
 let RouterOSAPI = ROS.RouterOSAPI || ROS.default || ROS;
@@ -80,6 +98,22 @@ if (!mikrotiks.length && (!process.env.MKT_HOST || !process.env.MKT_USER || !pro
 
 const status = {}; // status por ID/host
 let coldStart = true;
+
+// Cache simples de dispositivos (TTL: 60s)
+const deviceCache = new Map();
+const CACHE_TTL_MS = 60000;
+function getCachedDevice(key) {
+  const entry = deviceCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    deviceCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+function setCachedDevice(key, data) {
+  deviceCache.set(key, { data, timestamp: Date.now() });
+}
 
 // Helpers Mikrotik
 async function getRouterOS() {
@@ -256,6 +290,7 @@ app.get('/status', (req, res) => {
   });
 });
 
+// ===== Modo Direto (compatibilidade) =====
 app.post('/relay/exec', async (req, res) => {
   const mk = pickMKFromReq(req);
   if (!requireMkOr503(mk, res)) return;
@@ -265,6 +300,113 @@ app.post('/relay/exec', async (req, res) => {
   const r = await execROS(sentences, mk);
   if (!r.ok) return res.status(502).json(r);
   res.json(r);
+});
+
+// ===== Modo Inteligente - Exec por Pedido =====
+app.post('/relay/exec-by-pedido', async (req, res) => {
+  if (!prisma) {
+    return res.status(503).json({ ok:false, error:'database_not_available' });
+  }
+
+  const pedidoId = (req.body?.pedidoId || req.body?.orderId || '').toString().trim();
+  if (!pedidoId) {
+    return res.status(400).json({ ok:false, error:'missing pedidoId' });
+  }
+
+  const command = req.body?.command;
+  if (!command) {
+    return res.status(400).json({ ok:false, error:'missing command' });
+  }
+
+  try {
+    // Busca pedido no banco
+    const pedido = await prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      include: { device: true },
+    }).catch(() => null);
+
+    if (!pedido) {
+      return res.status(404).json({ ok:false, error:'pedido_not_found' });
+    }
+
+    // Busca dispositivo usando device-router
+    const cacheKey = `pedido:${pedidoId}`;
+    let routerInfo = getCachedDevice(cacheKey);
+    
+    if (!routerInfo) {
+      const lookup = {
+        deviceId: pedido.deviceId || pedido.device?.id,
+        mikId: pedido.device?.mikId || pedido.deviceIdentifier,
+      };
+      
+      routerInfo = await requireDeviceRouter(prisma, lookup);
+      setCachedDevice(cacheKey, routerInfo);
+    }
+
+    const mk = {
+      host: routerInfo.router.host,
+      user: routerInfo.router.user,
+      pass: routerInfo.router.pass,
+      port: routerInfo.router.port || 8728,
+    };
+
+    const sentences = parseCommandToSentences(command);
+    const r = await execROS(sentences, mk);
+    
+    if (!r.ok) return res.status(502).json(r);
+    res.json({ ...r, deviceId: routerInfo.device.id, mikId: routerInfo.device.mikId });
+  } catch (err) {
+    const code = err?.code || 'unknown_error';
+    const statusCode = code === 'device_not_found' ? 404 : 500;
+    return res.status(statusCode).json({ ok:false, error:code, detail:err?.message });
+  }
+});
+
+// ===== Modo Inteligente - Exec por Device =====
+app.post('/relay/exec-by-device', async (req, res) => {
+  if (!prisma) {
+    return res.status(503).json({ ok:false, error:'database_not_available' });
+  }
+
+  const deviceId = (req.body?.deviceId || req.body?.dispositivoId || '').toString().trim();
+  const mikId = (req.body?.mikId || req.body?.routerId || '').toString().trim();
+  
+  if (!deviceId && !mikId) {
+    return res.status(400).json({ ok:false, error:'missing deviceId or mikId' });
+  }
+
+  const command = req.body?.command;
+  if (!command) {
+    return res.status(400).json({ ok:false, error:'missing command' });
+  }
+
+  try {
+    // Busca dispositivo usando device-router (com cache)
+    const cacheKey = `device:${deviceId || mikId}`;
+    let routerInfo = getCachedDevice(cacheKey);
+    
+    if (!routerInfo) {
+      routerInfo = await requireDeviceRouter(prisma, { deviceId, mikId });
+      setCachedDevice(cacheKey, routerInfo);
+    }
+
+    const mk = {
+      host: routerInfo.router.host,
+      user: routerInfo.router.user,
+      pass: routerInfo.router.pass,
+      port: routerInfo.router.port || 8728,
+    };
+
+    const sentences = parseCommandToSentences(command);
+    const r = await execROS(sentences, mk);
+    
+    if (!r.ok) return res.status(502).json(r);
+    res.json({ ...r, deviceId: routerInfo.device.id, mikId: routerInfo.device.mikId });
+  } catch (err) {
+    const code = err?.code || 'unknown_error';
+    const statusCode = code === 'device_not_found' ? 404 : 500;
+    return res.status(statusCode).json({ ok:false, error:code, detail:err?.message });
+  }
 });
 
 // Hotspot
@@ -334,6 +476,20 @@ app.post('/v1/:id/hotspot/authorize', async (req, res) => {
 
 app.use((req, res) => res.status(404).json({ ok:false, error:'not-found' }));
 
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('[relay] SIGTERM recebido, encerrando...');
+  if (prisma) await prisma.$disconnect().catch(() => {});
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('[relay] SIGINT recebido, encerrando...');
+  if (prisma) await prisma.$disconnect().catch(() => {});
+  process.exit(0);
+});
+
 http.createServer(app).listen(PORT, () => {
   console.log(`[relay] http :${PORT}`);
+  console.log(`[relay] Modo inteligente: ${prisma ? 'ATIVO' : 'DESATIVADO'}`);
 });
