@@ -31,6 +31,26 @@ export async function runMikrotikCommands(mikConfig, commands = []) {
     errors: []
   };
 
+  // Validate and bound commands to avoid potential DoS via untrusted length
+  if (!Array.isArray(commands)) {
+    result.ok = false;
+    result.errors.push({
+      cmd: "VALIDATION",
+      message: "Invalid commands payload: expected an array"
+    });
+    return result;
+  }
+
+  const MAX_COMMANDS = 1000;
+  if (commands.length > MAX_COMMANDS) {
+    result.ok = false;
+    result.errors.push({
+      cmd: "VALIDATION",
+      message: `Too many commands: received ${commands.length}, maximum allowed is ${MAX_COMMANDS}`
+    });
+    return result;
+  }
+
   if (isDryRun()) {
     commands.forEach((cmd, index) => {
       console.log(`[relay-mikrotik][DRY_RUN] ${host} > command #${index + 1} (content omitted for security)`);
