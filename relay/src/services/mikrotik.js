@@ -32,9 +32,9 @@ export async function runMikrotikCommands(mikConfig, commands = []) {
   };
 
   if (isDryRun()) {
-    for (const cmd of commands) {
-      console.log(`[relay-mikrotik][DRY_RUN] ${host} > ${cmd}`);
-    }
+    commands.forEach((cmd, index) => {
+      console.log(`[relay-mikrotik][DRY_RUN] ${host} > command #${index + 1} (content omitted for security)`);
+    });
     return result;
   }
 
@@ -52,9 +52,10 @@ export async function runMikrotikCommands(mikConfig, commands = []) {
     const connection = await conn.connect();
     const chan = connection.openChannel("relay-batch");
 
-    for (const cmd of commands) {
+    for (let index = 0; index < commands.length; index++) {
+      const cmd = commands[index];
       try {
-        console.log(`[relay-mikrotik] ${host} > ${cmd}`);
+        console.log(`[relay-mikrotik] ${host} > executing command #${index + 1} (content omitted for security)`);
         await chan.write(cmd);
       } catch (err) {
         console.error('[relay-mikrotik] ERRO ao executar comando em host "%s": %s', host, err.message);
