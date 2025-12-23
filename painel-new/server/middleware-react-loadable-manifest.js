@@ -1,1 +1,0 @@
-self.__REACT_LOADABLE_MANIFEST='{"components/EChart.js -> echarts-for-react":{"id":4629,"files":["static/chunks/4629.a8323c0efa0a493d.js"]}}';

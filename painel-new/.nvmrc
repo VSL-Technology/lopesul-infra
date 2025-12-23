@@ -1,2 +1,0 @@
-echo "20.11.1" > .nvmrc
-# use: nvm use
