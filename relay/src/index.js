@@ -308,7 +308,7 @@ app.post('/mikrotik/bootstrap', async (req, res) => {
 });
 
 // POST /relay/manager/register
-app.post('/relay/manager/register', async (req, res) => {
+app.post('/relay/manager/register', authLimiter, async (req, res) => {
   try {
     if (!checkRate(req.ip)) return res.status(429).json({ ok: false, code: 'rate_limited' });
     if (!verifyHmac(req)) return res.status(401).json({ ok: false, code: 'invalid_signature' });
