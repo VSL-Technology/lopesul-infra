@@ -22,9 +22,15 @@ import peerBinding from './services/peerBinding.service.js';
 import mikrotikProbe from './services/mikrotikProbe.service.js';
 import routerRegistry from './routes/routerRegistry.js';
 import reconciler from './services/reconciler.js';
+import expressRateLimit from "express-rate-limit";
 
 // auth: if RELAY_API_SECRET is set, require HMAC signature on POST/DELETE/SYNC endpoints
 const RELAY_API_SECRET = process.env.RELAY_API_SECRET || null;
+
+const authLimiter = expressRateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs on protected routes
+});
 
 // basic in-memory rate limiter per IP
 const rateWindowMs = Number(process.env.RELAY_RATE_WINDOW_MS || 60000);
@@ -361,7 +367,7 @@ app.post('/relay/manager/register', async (req, res) => {
  * - Webhook Pix confirmando pagamento
  * - Backend manda pedidoId, mikId, deviceToken
  */
-app.post("/relay/authorize-by-pedido", async (req, res) => {
+app.post("/relay/authorize-by-pedido", authLimiter, async (req, res) => {
   try {
     const { pedidoId, mikId, deviceToken } = req.body;
     if (!pedidoId || !mikId || !deviceToken) {
@@ -383,7 +389,7 @@ app.post("/relay/authorize-by-pedido", async (req, res) => {
  * - Botão "já paguei e não liberou"
  * - Backend manda pedidoId, mikId, deviceToken, ipAtual, macAtual
  */
-app.post("/relay/resync-device", async (req, res) => {
+app.post("/relay/resync-device", authLimiter, async (req, res) => {
   try {
     const { pedidoId, mikId, deviceToken, ipAtual, macAtual } = req.body;
 
