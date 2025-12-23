@@ -244,7 +244,7 @@ app.get('/devices/:id/status', async (req, res) => {
  * If devicePublicKey provided: create peer on VPS and return Mikrotik CLI to apply on device (safe, no private keys).
  * If not provided: return step-by-step instructions to generate key on Mikrotik and continue.
  */
-app.post('/mikrotik/bootstrap', async (req, res) => {
+app.post('/mikrotik/bootstrap', authLimiter, async (req, res) => {
   try {
     if (!checkRate(req.ip)) return res.status(429).json({ ok: false, code: 'rate_limited' });
     if (!verifyHmac(req)) return res.status(401).json({ ok: false, code: 'invalid_signature' });
