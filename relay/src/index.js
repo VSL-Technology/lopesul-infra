@@ -22,12 +22,12 @@ import peerBinding from './services/peerBinding.service.js';
 import mikrotikProbe from './services/mikrotikProbe.service.js';
 import routerRegistry from './routes/routerRegistry.js';
 import reconciler from './services/reconciler.js';
-import rateLimit from "express-rate-limit";
+import expressRateLimit from "express-rate-limit";
 
 // auth: if RELAY_API_SECRET is set, require HMAC signature on POST/DELETE/SYNC endpoints
 const RELAY_API_SECRET = process.env.RELAY_API_SECRET || null;
 
-const authLimiter = rateLimit({
+const authLimiter = expressRateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs on protected routes
 });
